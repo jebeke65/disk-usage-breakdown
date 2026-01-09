@@ -3,8 +3,6 @@
   "render_readme": true,
   "content_in_root": false,
   "homeassistant": "2024.6.0",
-  "domain": "disk_usage_breakdown",
-  "country": "BE",
   "repository": "https://github.com/jebeke65/disk_usage_breakdown",
   "authors": ["jebeke65"]
 }

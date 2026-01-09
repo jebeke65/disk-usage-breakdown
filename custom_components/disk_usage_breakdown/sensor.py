@@ -10,7 +10,6 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.entity_platform import AddEntitiesCallback, async_get_current_platform
 
 from .const import DOMAIN
 from .coordinator import DiskUsageCoordinator
@@ -18,20 +17,15 @@ from .coordinator import DiskUsageCoordinator
 def mb_ceil(bytes_val: int) -> int:
     return int(math.ceil(float(bytes_val) / 1024.0 / 1024.0))
 
-def path_name(path: str) -> str:
-    # Sensor name is directly derived from the path (user requested).
-    return path
-
 def uid_for(entry_id: str, path: str) -> str:
     h = hashlib.sha1(path.encode("utf-8")).hexdigest()[:12]
     return f"{entry_id}_{h}"
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities) -> None:
     coord: DiskUsageCoordinator = hass.data[DOMAIN][entry.entry_id]
-    platform = async_get_current_platform()
+    ent_reg = er.async_get(hass)
 
     entities: dict[str, PathSizeSensor] = {}
-    ent_reg = er.async_get(hass)
 
     def desired_paths() -> set[str]:
         data = coord.data or {}
@@ -60,7 +54,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 
     @callback
     def _handle_update() -> None:
-        # Compare desired paths vs current entities, then add/remove.
         want = desired_paths()
         have = set(entities.keys())
         to_add = want - have
@@ -71,7 +64,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         if to_remove:
             hass.async_create_task(remove_old(to_remove))
 
-    # initial
     await add_new(desired_paths())
     coord.async_add_listener(_handle_update)
 
@@ -84,7 +76,7 @@ class PathSizeSensor(CoordinatorEntity[DiskUsageCoordinator], SensorEntity):
     def __init__(self, coordinator: DiskUsageCoordinator, entry: ConfigEntry, path: str) -> None:
         super().__init__(coordinator)
         self._path = path
-        self._attr_name = path_name(path)
+        self._attr_name = path
         self._attr_unique_id = uid_for(entry.entry_id, path)
 
     @property
@@ -96,8 +88,4 @@ class PathSizeSensor(CoordinatorEntity[DiskUsageCoordinator], SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         data = self.coordinator.data or {}
-        return {
-            "path": self._path,
-            "max_depth": data.get("max_depth"),
-            "min_size_mb": data.get("min_size_mb"),
-        }
+        return {"path": self._path, "max_depth": data.get("max_depth"), "min_size_mb": data.get("min_size_mb")}

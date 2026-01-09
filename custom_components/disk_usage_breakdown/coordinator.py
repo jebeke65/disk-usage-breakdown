@@ -29,7 +29,6 @@ async def du_tree_bytes(root: str, max_depth: int) -> dict[str, int]:
     if not os.path.exists(root):
         return {}
 
-    # -L follow symlinks, -x stay on same filesystem, -B1 bytes, -d depth
     proc = await asyncio.create_subprocess_exec(
         "du",
         "-LxB1",
@@ -39,7 +38,7 @@ async def du_tree_bytes(root: str, max_depth: int) -> dict[str, int]:
         stderr=asyncio.subprocess.DEVNULL,
     )
     out, _ = await proc.communicate()
-    if proc.returncode != 0:
+    if proc.returncode != 0 or not out:
         return {}
 
     result: dict[str, int] = {}
@@ -60,8 +59,8 @@ class DiskUsageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         opts = entry.options or {}
         data = entry.data or {}
 
-        self.interval: int = opts.get(CONF_INTERVAL, data.get(CONF_INTERVAL, DEFAULT_INTERVAL))
-        self.roots: list[str] = opts.get(CONF_ROOTS, data.get(CONF_ROOTS, DEFAULT_ROOTS))
+        self.interval: int = int(opts.get(CONF_INTERVAL, data.get(CONF_INTERVAL, DEFAULT_INTERVAL)))
+        self.roots: list[str] = list(opts.get(CONF_ROOTS, data.get(CONF_ROOTS, DEFAULT_ROOTS)))
         self.max_depth: int = int(opts.get(CONF_MAX_DEPTH, data.get(CONF_MAX_DEPTH, DEFAULT_MAX_DEPTH)))
         self.min_size_mb: int = int(opts.get(CONF_MIN_SIZE_MB, data.get(CONF_MIN_SIZE_MB, DEFAULT_MIN_SIZE_MB)))
 
@@ -79,15 +78,14 @@ class DiskUsageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             for r in self.roots:
                 tree = await du_tree_bytes(r, self.max_depth)
-                # filter noise by min size MB
                 tree = {p: b for p, b in tree.items() if _mb_ceil(b) >= self.min_size_mb}
                 roots_data[r] = tree
                 all_paths.update(tree)
 
             return {
                 "roots": list(self.roots),
-                "paths": all_paths,      # {path: bytes}
-                "per_root": roots_data,  # {root: {path: bytes}}
+                "paths": all_paths,
+                "per_root": roots_data,
                 "max_depth": self.max_depth,
                 "min_size_mb": self.min_size_mb,
             }

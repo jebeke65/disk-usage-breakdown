@@ -1,7 +1,7 @@
 {
   "domain": "disk_usage_breakdown",
   "name": "Disk Usage Breakdown",
-  "version": "0.1.1",
+  "version": "0.3.6",
   "config_flow": true,
   "iot_class": "local_polling"
 }

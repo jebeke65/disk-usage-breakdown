@@ -1,7 +1,7 @@
 {
   "domain": "disk_usage_breakdown",
   "name": "Disk Usage Breakdown",
-  "version": "0.3.3",
+  "version": "0.3.5",
   "documentation": "https://github.com/jebeke65/disk-usage-breakdown",
   "issue_tracker": "https://github.com/jebeke65/disk-usage-breakdown/issues",
   "requirements": [],
@@ -9,6 +9,6 @@
     "@jebeke65"
   ],
   "config_flow": true,
-  "iot_class": "local_polling",
-  "single_config_entry": true
+  "single_config_entry": true,
+  "iot_class": "local_polling"
 }

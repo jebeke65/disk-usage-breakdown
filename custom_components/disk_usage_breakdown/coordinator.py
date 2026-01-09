@@ -1,49 +1,83 @@
-import asyncio, shutil, math
+from __future__ import annotations
+
+import asyncio
+import shutil
 from datetime import timedelta
 from pathlib import Path
+from typing import Any
+
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
-from .const import *
+
+from .const import (
+    CONF_CATEGORIES,
+    CONF_INTERVAL,
+    CONF_MOUNT_PATH,
+    DEFAULT_CATEGORIES,
+    DEFAULT_INTERVAL,
+    DEFAULT_MOUNT_PATH,
+)
 
 async def du_bytes(path: str) -> int:
     p = Path(path)
     if not p.exists():
         return 0
-    for args, mul in [(['-sb'],1), (['-sk'],1024)]:
+
+    # Prefer bytes; fall back to KiB.
+    for args, mul in ((["-sb"], 1), (["-sk"], 1024)):
         try:
             proc = await asyncio.create_subprocess_exec(
-                'du', *args, str(p),
+                "du",
+                *args,
+                str(p),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
             )
-            out,_ = await proc.communicate()
-            if out:
+            out, _ = await proc.communicate()
+            if proc.returncode == 0 and out:
                 return int(out.split()[0]) * mul
         except Exception:
-            pass
+            continue
+
     return 0
 
-class DiskUsageCoordinator(DataUpdateCoordinator):
-    def __init__(self, hass, entry):
-        self.mount = entry.data.get(CONF_MOUNT_PATH, DEFAULT_MOUNT_PATH)
-        self.interval = entry.options.get(CONF_INTERVAL, DEFAULT_INTERVAL)
-        self.categories = entry.options.get(CONF_CATEGORIES, DEFAULT_CATEGORIES)
-        super().__init__(hass, __import__('logging').getLogger(__name__),
-            'Disk Usage Breakdown', timedelta(seconds=self.interval))
+class DiskUsageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.entry = entry
+        self.mount: str = entry.data.get(CONF_MOUNT_PATH, DEFAULT_MOUNT_PATH)
+        self.interval: int = entry.options.get(CONF_INTERVAL, entry.data.get(CONF_INTERVAL, DEFAULT_INTERVAL))
+        self.categories: list[dict[str, Any]] = entry.options.get(CONF_CATEGORIES, entry.data.get(CONF_CATEGORIES, DEFAULT_CATEGORIES))
 
-    async def _async_update_data(self):
+        super().__init__(
+            hass,
+            __import__("logging").getLogger(__name__),
+            name="Disk Usage Breakdown",
+            update_interval=timedelta(seconds=self.interval),
+        )
+
+    async def _async_update_data(self) -> dict[str, Any]:
         try:
             disk = shutil.disk_usage(self.mount)
-            sizes = {}
+
+            sizes: dict[str, int] = {}
             for c in self.categories:
-                if c.get('enabled', True):
-                    sizes[c['name']] = await du_bytes(c['path'])
+                if c.get("enabled", True) and c.get("name") and c.get("path"):
+                    sizes[c["name"]] = await du_bytes(c["path"])
+
             known = sum(sizes.values())
-            other = max(disk.used - known, 0)
+            other = max(int(disk.used) - int(known), 0)
 
-            user_keys = {'Home Assistant','Share','Media','Backup'}
-            user_sum = sum(v for k,v in sizes.items() if k in user_keys)
-            system = max(disk.used - user_sum, 0)
+            user_keys = {"Home Assistant", "Share", "Media", "Backup"}
+            user_sum = sum(v for k, v in sizes.items() if k in user_keys)
+            system = max(int(disk.used) - int(user_sum), 0)
 
-            return {'sizes': sizes, 'other': other, 'system': system}
-        except Exception as e:
-            raise UpdateFailed(e)
+            return {
+                "mount": self.mount,
+                "disk_used": int(disk.used),
+                "sizes": sizes,
+                "other": int(other),
+                "system": int(system),
+            }
+        except Exception as err:
+            raise UpdateFailed(f"Disk usage update failed: {err}") from err

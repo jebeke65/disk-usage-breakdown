@@ -3,16 +3,14 @@
   "config": {
     "step": {
       "user": {
-        "title": "Disk Usage Breakdown",
-        "description": "Choose a mount point and scan interval."
+        "title": "Disk Usage Breakdown"
       }
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Options",
-        "description": "Change scan interval and category paths."
+        "title": "Options"
       }
     }
   }

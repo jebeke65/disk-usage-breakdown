@@ -1,11 +1,9 @@
 {
   "domain": "disk_usage_breakdown",
   "name": "Disk Usage Breakdown",
-  "version": "0.0.2",
-  "documentation": "https://github.com/jebeke65/disk-usage-breakdown",
-  "issue_tracker": "https://github.com/jebeke65/disk-usage-breakdown/issues",
-  "requirements": [],
-  "codeowners": ["@jebeke65"],
+  "version": "0.2.1",
+  "documentation": "https://github.com/YOUR_GITHUB_USER/YOUR_REPO",
+  "issue_tracker": "https://github.com/YOUR_GITHUB_USER/YOUR_REPO/issues",
   "config_flow": true,
   "iot_class": "local_polling"
 }

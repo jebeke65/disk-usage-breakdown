@@ -1,49 +1,96 @@
+from __future__ import annotations
+
 import math
-from homeassistant.components.sensor import SensorEntity
+from typing import Any
+
+from homeassistant.components.sensor import SensorEntity, SensorStateClass
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
 from .const import DOMAIN
+from .coordinator import DiskUsageCoordinator
 
-def mb_ceil(b):
-    return int(math.ceil(b / 1024 / 1024))
+def mb_ceil(bytes_val: int) -> int:
+    return int(math.ceil(float(bytes_val) / 1024.0 / 1024.0))
 
-async def async_setup_entry(hass, entry, async_add_entities):
-    coord = hass.data[DOMAIN][entry.entry_id]
-    entities = []
+def slug(name: str) -> str:
+    return (
+        name.strip()
+        .lower()
+        .replace("&", "and")
+        .replace("/", "_")
+        .replace("-", "_")
+        .replace(" ", "_")
+    )
 
-    for name in coord.categories:
-        if name.get('enabled', True):
-            entities.append(CategorySensor(coord, name['name']))
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities) -> None:
+    coord: DiskUsageCoordinator = hass.data[DOMAIN][entry.entry_id]
+    entities: list[SensorEntity] = []
 
-    entities.append(OtherSensor(coord))
-    entities.append(SystemSensor(coord))
+    for c in coord.categories:
+        if c.get("enabled", True) and c.get("name"):
+            entities.append(CategorySensor(coord, entry, c["name"], c.get("path", "")))
+
+    entities.append(OtherSensor(coord, entry))
+    entities.append(SystemSensor(coord, entry))
 
     async_add_entities(entities)
 
-class Base(CoordinatorEntity, SensorEntity):
-    _attr_unit_of_measurement = 'MB'
-    _attr_icon = 'mdi:harddisk'
+class Base(CoordinatorEntity[DiskUsageCoordinator], SensorEntity):
+    _attr_native_unit_of_measurement = "MB"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:harddisk"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: DiskUsageCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._entry = entry
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        data = self.coordinator.data or {}
+        return {"mount_path": data.get("mount")}
 
 class CategorySensor(Base):
-    def __init__(self, coord, name):
-        super().__init__(coord)
-        self._name = name
-        self._attr_name = f'Disk usage {name}'
-        self._attr_unique_id = f"{coord.config_entry.entry_id}_{name.lower().replace(' ','_')}_mb"
+    def __init__(self, coordinator: DiskUsageCoordinator, entry: ConfigEntry, name: str, path: str) -> None:
+        super().__init__(coordinator, entry)
+        self._cat_name = name
+        self._path = path
+        self._attr_name = f"Disk usage {name}"
+        self._attr_unique_id = f"{entry.entry_id}_cat_{slug(name)}_mb"
 
     @property
-    def native_value(self):
-        return mb_ceil(self.coordinator.data['sizes'].get(self._name, 0))
+    def native_value(self) -> int:
+        data = self.coordinator.data or {}
+        b = (data.get("sizes") or {}).get(self._cat_name, 0)
+        return mb_ceil(int(b))
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        attrs = super().extra_state_attributes
+        attrs.update({"path": self._path})
+        return attrs
 
 class OtherSensor(Base):
-    _attr_name = 'Disk usage Other'
-    _attr_unique_id = 'disk_usage_other_mb'
+    def __init__(self, coordinator: DiskUsageCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator, entry)
+        self._attr_name = "Disk usage Other"
+        self._attr_unique_id = f"{entry.entry_id}_other_mb"
+
     @property
-    def native_value(self):
-        return mb_ceil(self.coordinator.data['other'])
+    def native_value(self) -> int:
+        data = self.coordinator.data or {}
+        return mb_ceil(int(data.get("other", 0)))
 
 class SystemSensor(Base):
-    _attr_name = 'Disk usage System'
-    _attr_unique_id = 'disk_usage_system_mb'
+    def __init__(self, coordinator: DiskUsageCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator, entry)
+        self._attr_name = "Disk usage System"
+        self._attr_unique_id = f"{entry.entry_id}_system_mb"
+
     @property
-    def native_value(self):
-        return mb_ceil(self.coordinator.data['system'])
+    def native_value(self) -> int:
+        data = self.coordinator.data or {}
+        return mb_ceil(int(data.get("system", 0)))

@@ -1,11 +1,10 @@
 {
   "name": "Disk Usage Breakdown",
+  "render_readme": true,
   "content_in_root": false,
   "homeassistant": "2024.6.0",
   "domain": "disk_usage_breakdown",
-  "render_readme": true,
   "country": "BE",
-  "iot_class": "local_polling",
   "repository": "https://github.com/jebeke65/disk_usage_breakdown",
   "authors": ["jebeke65"]
 }

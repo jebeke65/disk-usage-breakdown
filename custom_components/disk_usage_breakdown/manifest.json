@@ -1,7 +1,7 @@
 {
   "domain": "disk_usage_breakdown",
   "name": "Disk Usage Breakdown",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "documentation": "https://github.com/jebeke65/disk-usage-breakdown",
   "issue_tracker": "https://github.com/jebeke65/disk-usage-breakdown/issues",
   "requirements": [],

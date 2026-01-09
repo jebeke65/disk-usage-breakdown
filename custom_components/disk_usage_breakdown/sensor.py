@@ -47,7 +47,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             e = entities.pop(p, None)
             if e is None:
                 continue
-            # Remove from entity registry (so it disappears for the user)
             if e.entity_id:
                 ent_reg.async_remove(e.entity_id)
             await e.async_remove(force_remove=True)

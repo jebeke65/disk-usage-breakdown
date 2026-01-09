@@ -25,7 +25,6 @@ def _mb_ceil(b: int) -> int:
     return int(math.ceil(float(b) / 1024.0 / 1024.0))
 
 async def du_tree_bytes(root: str, max_depth: int) -> dict[str, int]:
-    """Return {path: bytes} for folders up to max_depth (inclusive) under root."""
     if not os.path.exists(root):
         return {}
 

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-import shutil
+import os
+import math
 from datetime import timedelta
-from pathlib import Path
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -11,43 +11,59 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
-    CONF_CATEGORIES,
     CONF_INTERVAL,
-    CONF_MOUNT_PATH,
-    DEFAULT_CATEGORIES,
+    CONF_MAX_DEPTH,
+    CONF_MIN_SIZE_MB,
+    CONF_ROOTS,
     DEFAULT_INTERVAL,
-    DEFAULT_MOUNT_PATH,
+    DEFAULT_MAX_DEPTH,
+    DEFAULT_MIN_SIZE_MB,
+    DEFAULT_ROOTS,
 )
 
-async def du_bytes(path: str) -> int:
-    p = Path(path)
-    if not p.exists():
-        return 0
+def _mb_ceil(b: int) -> int:
+    return int(math.ceil(float(b) / 1024.0 / 1024.0))
 
-    # Prefer bytes; fall back to KiB.
-    for args, mul in ((["-sb"], 1), (["-sk"], 1024)):
+async def du_tree_bytes(root: str, max_depth: int) -> dict[str, int]:
+    """Return {path: bytes} for folders up to max_depth (inclusive) under root."""
+    if not os.path.exists(root):
+        return {}
+
+    # -L follow symlinks, -x stay on same filesystem, -B1 bytes, -d depth
+    proc = await asyncio.create_subprocess_exec(
+        "du",
+        "-LxB1",
+        f"-d{max_depth}",
+        root,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    out, _ = await proc.communicate()
+    if proc.returncode != 0:
+        return {}
+
+    result: dict[str, int] = {}
+    for line in out.decode("utf-8", errors="ignore").splitlines():
+        line = line.strip()
+        if not line:
+            continue
         try:
-            proc = await asyncio.create_subprocess_exec(
-                "du",
-                *args,
-                str(p),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            out, _ = await proc.communicate()
-            if proc.returncode == 0 and out:
-                return int(out.split()[0]) * mul
+            size_s, path = line.split("\t", 1)
+            result[path] = int(size_s)
         except Exception:
             continue
-
-    return 0
+    return result
 
 class DiskUsageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         self.entry = entry
-        self.mount: str = entry.data.get(CONF_MOUNT_PATH, DEFAULT_MOUNT_PATH)
-        self.interval: int = entry.options.get(CONF_INTERVAL, entry.data.get(CONF_INTERVAL, DEFAULT_INTERVAL))
-        self.categories: list[dict[str, Any]] = entry.options.get(CONF_CATEGORIES, entry.data.get(CONF_CATEGORIES, DEFAULT_CATEGORIES))
+        opts = entry.options or {}
+        data = entry.data or {}
+
+        self.interval: int = opts.get(CONF_INTERVAL, data.get(CONF_INTERVAL, DEFAULT_INTERVAL))
+        self.roots: list[str] = opts.get(CONF_ROOTS, data.get(CONF_ROOTS, DEFAULT_ROOTS))
+        self.max_depth: int = int(opts.get(CONF_MAX_DEPTH, data.get(CONF_MAX_DEPTH, DEFAULT_MAX_DEPTH)))
+        self.min_size_mb: int = int(opts.get(CONF_MIN_SIZE_MB, data.get(CONF_MIN_SIZE_MB, DEFAULT_MIN_SIZE_MB)))
 
         super().__init__(
             hass,
@@ -58,26 +74,22 @@ class DiskUsageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _async_update_data(self) -> dict[str, Any]:
         try:
-            disk = shutil.disk_usage(self.mount)
+            roots_data: dict[str, dict[str, int]] = {}
+            all_paths: dict[str, int] = {}
 
-            sizes: dict[str, int] = {}
-            for c in self.categories:
-                if c.get("enabled", True) and c.get("name") and c.get("path"):
-                    sizes[c["name"]] = await du_bytes(c["path"])
-
-            known = sum(sizes.values())
-            other = max(int(disk.used) - int(known), 0)
-
-            user_keys = {"Home Assistant", "Share", "Media", "Backup"}
-            user_sum = sum(v for k, v in sizes.items() if k in user_keys)
-            system = max(int(disk.used) - int(user_sum), 0)
+            for r in self.roots:
+                tree = await du_tree_bytes(r, self.max_depth)
+                # filter noise by min size MB
+                tree = {p: b for p, b in tree.items() if _mb_ceil(b) >= self.min_size_mb}
+                roots_data[r] = tree
+                all_paths.update(tree)
 
             return {
-                "mount": self.mount,
-                "disk_used": int(disk.used),
-                "sizes": sizes,
-                "other": int(other),
-                "system": int(system),
+                "roots": list(self.roots),
+                "paths": all_paths,      # {path: bytes}
+                "per_root": roots_data,  # {root: {path: bytes}}
+                "max_depth": self.max_depth,
+                "min_size_mb": self.min_size_mb,
             }
         except Exception as err:
             raise UpdateFailed(f"Disk usage update failed: {err}") from err
